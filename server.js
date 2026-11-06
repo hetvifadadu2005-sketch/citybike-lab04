@@ -1,4 +1,6 @@
+
 'use strict';
+
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -6,6 +8,7 @@ const path = require('node:path');
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || '0.0.0.0';
 const APP_ENV = process.env.APP_ENV || 'development';
+
 // Configuration trap: defaults to an insecure fallback if not injected by the pipeline
 const API_KEY = process.env.PROD_API_KEY || 'DEV_LOCAL_INSECURE_KEY';
 
@@ -19,8 +22,14 @@ const stations = [
   { id: 'campus', name: 'Campus North', bikes: 1, docks: 7 }
 ];
 
+// Mission 1: Create a snapshot using structuredClone()
+const stationsSnapshot = structuredClone(stations);
+
 function send(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
   res.end(JSON.stringify(data));
 }
 
@@ -35,6 +44,7 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && pathname === '/health') {
     const hasManifest = fs.existsSync(manifestPath);
+
     return send(res, 200, {
       ok: true,
       environment: APP_ENV,
@@ -43,37 +53,57 @@ const server = http.createServer((req, res) => {
     });
   }
 
+  // Mission 1: Return the cloned stations snapshot
   if (req.method === 'GET' && pathname === '/api/stations') {
-    return send(res, 200, { stations });
+    return send(res, 200, { stations: stationsSnapshot });
   }
 
   if (req.method === 'POST' && pathname === '/api/reservations') {
     let body = '';
     let aborted = false;
+
     req.on('data', chunk => {
       body += chunk;
+
       if (body.length > 10000) {
         aborted = true;
         send(res, 413, { error: 'Payload too large' });
         req.destroy();
       }
     });
+
     req.on('end', () => {
       if (aborted) return;
+
       let payload;
-      try { payload = JSON.parse(body); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        return send(res, 400, { error: 'Invalid JSON' });
+      }
+
       const station = stations.find(s => s.id === payload?.stationId);
       const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload?.email || '');
+
       if (!station || station.bikes < 1 || !validEmail) {
-        return send(res, 422, { error: 'Reservation cannot be completed' });
+        return send(res, 422, {
+          error: 'Reservation cannot be completed'
+        });
       }
-      return send(res, 201, { reservationId: 'CB-' + station.id.toUpperCase(), stationId: station.id });
+
+      return send(res, 201, {
+        reservationId: 'CB-' + station.id.toUpperCase(),
+        stationId: station.id
+      });
     });
+
     return;
   }
 
   if (req.method === 'GET' && assets.has(pathname)) {
     const [file, mime] = assets.get(pathname);
+
     try {
       res.writeHead(200, { 'Content-Type': mime });
       res.end(fs.readFileSync(path.join(publicDir, file)));
@@ -81,6 +111,7 @@ const server = http.createServer((req, res) => {
       res.writeHead(500);
       res.end('Server error');
     }
+
     return;
   }
 
